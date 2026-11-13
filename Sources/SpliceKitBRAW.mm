@@ -5756,4 +5756,21 @@ SPLICEKIT_BRAW_EXTERN_C BOOL SpliceKitBRAW_ReadAudioSamples(
     return NO;
 }
 
+// The Blackmagic RAW SDK is not installed, so the implementations above are
+// compiled out. SpliceKit.m and SpliceKitServer.m call these two entry points
+// unconditionally, so provide inert stubs here to keep the dylib linkable.
+// BRAW media stays unsupported until the SDK is present at build time.
+
+SPLICEKIT_BRAW_EXTERN_C void SpliceKit_bootstrapBRAWAtLaunchPhase(NSString *phase) {
+    (void)phase;
+}
+
+SPLICEKIT_BRAW_EXTERN_C NSDictionary *SpliceKit_handleBRAWAVProbe(NSDictionary *params) {
+    (void)params;
+    return @{
+        @"ok": @NO,
+        @"error": @"Blackmagic RAW SDK is not installed; BRAW decoding is unavailable in this build.",
+    };
+}
+
 #endif

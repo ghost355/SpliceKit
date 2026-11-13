@@ -294,53 +294,18 @@ step "Step 2: Building SpliceKit dylib"
 BUILD_DIR="$REPO_DIR/build"
 mkdir -p "$BUILD_DIR"
 
-# Read canonical source list from Sources/SOURCES.txt
-SOURCES=()
-while IFS= read -r line; do
-    [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
-    SOURCES+=("$REPO_DIR/Sources/$line")
-done < "$REPO_DIR/Sources/SOURCES.txt"
+# Build through the project's Makefile instead of a hand-rolled single clang
+# invocation. The old inline command compiled all 45 sources in one shot, which
+# broke .mm files (they were parsed as C: "cmath file not found", invalid
+# extern "C") and skipped the vendored Sentry framework entirely. The Makefile
+# compiles per file with the right language/std, links Sentry, and refuses to
+# produce a dylib with unresolved SpliceKit_* symbols.
+info "Building SpliceKit dylib (make all)..."
+( cd "$REPO_DIR" && make all ) || err "SpliceKit build failed — see the compiler output above"
 
-# Build Lua 5.4.7 static library if vendored sources exist
-LUA_DIR="$REPO_DIR/vendor/lua-5.4.7/src"
-LUA_LIB="$BUILD_DIR/liblua.a"
-LUA_FLAGS=""
-if [ -d "$LUA_DIR" ]; then
-    info "Building Lua 5.4.7 static library..."
-    mkdir -p "$BUILD_DIR/lua_obj"
-    for src in "$LUA_DIR"/*.c; do
-        base="$(basename "$src" .c)"
-        [ "$base" = "lua" ] && continue
-        [ "$base" = "luac" ] && continue
-        clang -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 \
-            -DLUA_USE_MACOSX -O2 -Wall -c "$src" -o "$BUILD_DIR/lua_obj/$base.o"
-    done
-    libtool -static -o "$LUA_LIB" "$BUILD_DIR"/lua_obj/*.o
-    LUA_FLAGS="-I $LUA_DIR $LUA_LIB"
-    log "Built: $LUA_LIB"
+if [ ! -f "$BUILD_DIR/SpliceKit" ]; then
+    err "Build finished but $BUILD_DIR/SpliceKit is missing"
 fi
-
-# Sentry is a static framework vendored by Scripts/ensure_sentry_framework.sh.
-# Sources/SpliceKitSentry.m imports <Sentry/Sentry.h>, so the patcher must fetch
-# it and link it exactly like the Makefile does. Upstream's patcher omitted both
-# steps, so a from-source patch failed with "Sentry/Sentry.h file not found".
-if [ ! -d "$REPO_DIR/patcher/Frameworks/Sentry.framework" ]; then
-    info "Fetching Sentry framework..."
-    bash "$REPO_DIR/Scripts/ensure_sentry_framework.sh" || err "Could not fetch Sentry.framework"
-fi
-
-info "Compiling ${#SOURCES[@]} source files..."
-clang -arch arm64 -arch x86_64 \
-    -mmacosx-version-min=14.0 \
-    -framework Foundation -framework AppKit -framework AVFoundation -framework Speech -framework CoreServices \
-    -fobjc-arc -fmodules -Wno-deprecated-declarations \
-    -undefined dynamic_lookup -dynamiclib \
-    -install_name @rpath/SpliceKit.framework/Versions/A/SpliceKit \
-    -I "$REPO_DIR/Sources" -F "$REPO_DIR/patcher/Frameworks" \
-    "${SOURCES[@]}" $LUA_FLAGS -ObjC -framework Sentry \
-    -o "$BUILD_DIR/SpliceKit" 2>&1
-
-log "Built: $(file "$BUILD_DIR/SpliceKit" | grep -o 'universal.*')"
 
 # ============================================================
 # Step 3: Create framework bundle
