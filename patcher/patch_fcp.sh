@@ -320,6 +320,15 @@ if [ -d "$LUA_DIR" ]; then
     log "Built: $LUA_LIB"
 fi
 
+# Sentry is a static framework vendored by Scripts/ensure_sentry_framework.sh.
+# Sources/SpliceKitSentry.m imports <Sentry/Sentry.h>, so the patcher must fetch
+# it and link it exactly like the Makefile does. Upstream's patcher omitted both
+# steps, so a from-source patch failed with "Sentry/Sentry.h file not found".
+if [ ! -d "$REPO_DIR/patcher/Frameworks/Sentry.framework" ]; then
+    info "Fetching Sentry framework..."
+    bash "$REPO_DIR/Scripts/ensure_sentry_framework.sh" || err "Could not fetch Sentry.framework"
+fi
+
 info "Compiling ${#SOURCES[@]} source files..."
 clang -arch arm64 -arch x86_64 \
     -mmacosx-version-min=14.0 \
@@ -327,8 +336,8 @@ clang -arch arm64 -arch x86_64 \
     -fobjc-arc -fmodules -Wno-deprecated-declarations \
     -undefined dynamic_lookup -dynamiclib \
     -install_name @rpath/SpliceKit.framework/Versions/A/SpliceKit \
-    -I "$REPO_DIR/Sources" \
-    "${SOURCES[@]}" $LUA_FLAGS \
+    -I "$REPO_DIR/Sources" -F "$REPO_DIR/patcher/Frameworks" \
+    "${SOURCES[@]}" $LUA_FLAGS -ObjC -framework Sentry \
     -o "$BUILD_DIR/SpliceKit" 2>&1
 
 log "Built: $(file "$BUILD_DIR/SpliceKit" | grep -o 'universal.*')"
